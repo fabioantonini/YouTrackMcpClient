@@ -22,24 +22,28 @@ With YouTrackLLM you can create projects, issues, epics, subtasks, update fields
 * ✔ **Bidirectional issue linking** (`link_issues`)
 * ✔ **LLM-powered natural language parser**
 * ✔ **Dynamic override of YouTrack URL & Token via CLI**
+* ✔ **NEW: Full support for YouTrack’s MCP Server via the OpenAI Responses API**
 
 ---
 
 ## 🎯 How It Works
 
-The application follows this pipeline:
+The application can operate in **two modes**:
+
+---
+
+### **1. Classic GPT Parsing Mode (default)**
 
 ```
-User → Natural language command
-     → GPTParser (LLM) → Structured JSON
-     → Orchestrator → YouTrackClient
-     → YouTrack REST API
+User → Natural language
+     → GPTParser → JSON action
+     → Orchestrator → YouTrack REST API
 ```
 
 Example:
 
 ```
-> Create an Epic in project SUP titled "WiFi Refactoring" with three subtasks…
+> Create an Epic in project SUP titled "WiFi Refactoring"...
 
 GPT → JSON:
 {
@@ -48,8 +52,100 @@ GPT → JSON:
   ...
 }
 
-Orchestrator → YouTrack API → issues and links created
+Orchestrator → YouTrack API → issues created
 ```
+
+This mode uses your existing code to map LLM-generated JSON into REST API calls.
+
+---
+
+### **2. MCP Mode (Model Context Protocol) — NEW**
+
+In this mode, the OpenAI **Responses API** connects directly to the **YouTrack MCP server**, allowing the LLM to:
+
+* discover the tools exposed by YouTrack
+* call them autonomously
+* chain multiple tools to perform complex operations
+* retrieve structured data directly from YouTrack
+* summarize or transform results without hand-written parsing logic
+
+The flow becomes:
+
+```
+User → Natural language
+     → OpenAI Responses API
+     → MCP Tool Calls (YouTrack)
+     → Direct results from YouTrack MCP Server
+```
+
+This unlocks YouTrack-native operations such as:
+
+* `search_issues`
+* `get_issue`
+* `create_issue`
+* `update_issue`
+* `add_issue_comment`
+* `link_issues`
+* and more, depending on your instance configuration.
+
+To enable MCP mode:
+
+```
+python youtrack-mcp.py --use-mcp
+```
+
+Or:
+
+```
+export USE_MCP=1
+python youtrack-mcp.py
+```
+
+---
+
+## 🔌 MCP Mode (Model Context Protocol)
+
+When MCP mode is enabled, YouTrackLLM becomes a **true MCP client**.
+
+The application automatically configures a tool connection pointing to:
+
+```
+<YT_BASE_URL>/mcp
+```
+
+with authentication provided via:
+
+```
+Authorization: Bearer <YT_TOKEN>
+```
+
+The OpenAI model is then allowed to autonomously call MCP tools.
+For example, a user prompt such as:
+
+```
+MCP> Show all open issues assigned to me in project SUP and summarize them.
+```
+
+may trigger internally:
+
+```
+[tool_call] search_issues
+[tool_call] get_issue
+[tool_call] link_issues
+...
+```
+
+The assistant aggregates and summarizes the results with no manual JSON parsing.
+
+MCP mode provides:
+
+* more natural dialog
+* richer queries
+* deeper YouTrack integration
+* tool auto-discovery
+* schema-enforced output
+
+Your existing CLI and configuration system remain fully compatible.
 
 ---
 
@@ -89,6 +185,12 @@ Or override from the command line:
 python youtrack-mcp.py --yt-url https://<org>.youtrack.cloud --yt-token <token>
 ```
 
+### 5. Optional: enable MCP mode
+
+```
+python youtrack-mcp.py --use-mcp
+```
+
 ---
 
 ## 💬 Example Commands
@@ -97,61 +199,35 @@ YouTrackLLM understands natural language like:
 
 ```
 Create a ticket in project SUP titled "Access error" with priority Critical.
-```
-
-```
 Show me all issues assigned to admin in project SUP.
-```
-
-```
-Create an Epic in project SUP with title "New WiFi Module" and subtasks "Driver", "GUI", "Tests".
-```
-
-```
-Add a subtask to Epic SUP-17 titled "Additional RF analysis", priority Major.
-```
-
-```
+Create an Epic in project SUP titled "New WiFi Module" with subtasks Driver, GUI, Tests.
+Add a subtask to Epic SUP-17 titled "Additional RF analysis".
 Show the hierarchy of Epic SUP-17.
+```
+
+In **MCP mode**, you can ask even more complex queries, for example:
+
+```
+MCP> Summarize all high-priority bugs from the last 30 days.
+MCP> Create a task in SUP titled “Test build pipeline” and assign it to admin.
+MCP> Analyze the status of release 3.4 and generate a risk report.
 ```
 
 ---
 
-## 📌 Does this project actually use YouTrack’s MCP server?
+## 📌 Does this project now use YouTrack’s MCP server?
 
-**No.**
+**Yes — fully.**
 
-YouTrackLLM **does not use** the official **Model Context Protocol (MCP)** server provided by JetBrains.
+The project now includes:
 
-Instead, this project uses:
+* a complete MCP client implementation
+* automatic tool registration for OpenAI
+* authenticated requests to the YouTrack MCP endpoint
+* full support for MCP tool discovery and invocation
+* an integrated CLI for MCP interaction
 
-* YouTrack’s **standard REST API**
-* A custom **LLM-powered JSON action parser**
-* A Python “orchestrator” that behaves similarly to an MCP agent, but **without using the MCP server endpoints**
-
-### Why?
-
-Because the YouTrack MCP server exposes tool definitions under:
-
-```
-/api/mcp/server
-```
-
-and requires a proper MCP client that invokes those tools.
-
-In our project:
-
-* The LLM generates structured JSON actions
-* The Python application interprets these actions
-* The YouTrackClient executes REST API calls manually
-
-So this is essentially an **MCP-inspired architecture**, but not actual MCP.
-
-### Can this project be extended to use the real MCP server?
-
-✔ Yes — it’s completely possible.
-We can add a new module acting as a **true MCP client** speaking the MCP protocol.
-If you want, I can prepare a branch that does that.
+Both modes (classic & MCP) coexist, and you can choose the one you prefer.
 
 ---
 
@@ -160,9 +236,10 @@ If you want, I can prepare a branch that does that.
 * [x] Create Epic + subtasks
 * [x] Show Epic hierarchy (tree view)
 * [x] Add subtask to existing Epic
+* [x] **MCP client integration**
 * [ ] Move subtask between Epics
 * [ ] Delete Epic + cascade-delete subtasks
-* [ ] Optional integration with real MCP server
+* [ ] Automatic MCP tool usage with chain-of-thought suppression
 * [ ] Agent mode for ChatGPT / OpenAI MCP
 
 ---
@@ -175,6 +252,5 @@ MIT License.
 
 ## 🚀 Author
 
-YouTrackLLM is developed by **Fabio**, with LLM support.
-The goal is to provide a lightweight, powerful, and customizable **AI wrapper** for YouTrack.
-
+YouTrackLLM is developed by **Fabio**, with AI-assisted support.
+The goal is to provide a lightweight, powerful, and extensible **AI-powered interface for YouTrack**.
