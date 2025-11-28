@@ -3,6 +3,12 @@ import json
 import requests
 from dotenv import load_dotenv
 
+try:
+    # Nuovo client OpenAI (Responses API)
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
 # Carica variabili d'ambiente dal file .env, se presente
 load_dotenv()
 
@@ -658,6 +664,95 @@ class YouTrackClient:
 
         return issues
 
+def run_mcp_cli(base_url: str, yt_token: str):
+    """
+    Modalità alternativa: usa la OpenAI Responses API + MCP server di YouTrack,
+    invece del parser GPT custom + REST API manuali.
+
+    Richiede:
+      - OPENAI_API_KEY (già usato dallo script)
+      - YT_BASE_URL (passato come base_url)
+      - YT_TOKEN (yt_token)
+      - libreria 'openai' installata
+    """
+    global OPENAI_API_KEY
+
+    if OpenAI is None:
+        print("⚠️ Per usare la modalità MCP devi installare il pacchetto 'openai' (pip install openai).")
+        return
+
+    if not OPENAI_API_KEY:
+        print("⚠️ OPENAI_API_KEY non configurata.")
+        return
+
+    if not base_url or not yt_token:
+        print("⚠️ Per MCP servono YT_BASE_URL e YT_TOKEN (o --yt-url / --yt-token).")
+        return
+
+    client = OpenAI(api_key=OPENAI_API_KEY)
+
+    # Costruiamo l'URL dell'MCP server di YouTrack con qualche filtro di tool
+    # (puoi modificarlo in base a quello che ti serve).
+    mcp_url = f"{base_url}/mcp"
+    # Esempio: limitiamo gli strumenti disponibili e abilitiamo gli output schema
+    # mcp_url += "?tools=search_issues,get_issue,create_issue,update_issue,add_issue_comment,link_issues&enableToolOutputSchema=true"
+
+    print("💡 MCP mode attiva.")
+    print("   Ora il modello userà direttamente gli strumenti MCP di YouTrack.")
+    print("   Scrivi una richiesta in linguaggio naturale (o 'exit' per uscire).")
+
+    while True:
+        try:
+            user_input = input("MCP> ")
+        except (EOFError, KeyboardInterrupt):
+            print("\n👋 Uscita dalla MCP mode.")
+            break
+
+        if not user_input:
+            continue
+        if user_input.lower() in ("exit", "quit", "esci"):
+            print("👋 Uscita dalla MCP mode.")
+            break
+
+        try:
+            # Chiamata alla Responses API con tool MCP
+            response = client.responses.create(
+                model="gpt-4.1",  # o "gpt-4.1-mini" se vuoi risparmiare
+                input=user_input,
+                tools=[
+                    {
+                        "type": "mcp",
+                        "server_label": "youtrack",
+                        "server_url": mcp_url,
+                        "require_approval": "never",
+                        # Header di autenticazione richiesto dal server MCP di YouTrack
+                        "headers": {
+                            "Authorization": f"Bearer {yt_token}"
+                        },
+                    }
+                ],
+                max_output_tokens=800,
+            )
+
+            # La libreria Python espone direttamente response.output_text
+            # che concatena il testo finale dell'assistente.
+            try:
+                output_text = getattr(response, "output_text", None)
+            except Exception:
+                output_text = None
+
+            if output_text:
+                print()
+                print(output_text)
+                print()
+            else:
+                # Fallback: stampiamo il raw response (utile per debug)
+                print("[DEBUG] Nessun output_text, risposta grezza:")
+                print(response)
+
+        except Exception as e:
+            print(f"❌ Errore durante la chiamata MCP: {e}")
+
 # Esecuzione principale: loop per leggere comandi da console
 if __name__ == "__main__":
     import argparse
@@ -675,6 +770,13 @@ if __name__ == "__main__":
         dest="yt_token",
         help="Token permanente di YouTrack"
     )
+
+    arg_parser.add_argument(
+        "--use-mcp",
+        action="store_true",
+        help="Usa OpenAI Responses API + MCP server di YouTrack invece del parser GPT custom."
+    )
+
     args = arg_parser.parse_args()
 
     base_url = (args.yt_url or YT_BASE_URL or "").rstrip("/")
@@ -686,204 +788,212 @@ if __name__ == "__main__":
             "d'ambiente oppure usare --yt-url e --yt-token da riga di comando."
         )
 
-    parser = GPTParser(OPENAI_API_KEY)
-    yt = YouTrackClient(base_url, token)
+    # 🔽 Leggiamo anche la variabile di ambiente USE_MCP
+    use_mcp_env = os.getenv("USE_MCP") == "1"
+    use_mcp = args.use_mcp or use_mcp_env
 
-    print("💡 Applicazione YouTrack Natural Language pronta. Inserisci un comando (o 'exit' per uscire).")
-    while True:
-        try:
-            user_input = input("> ")
-        except (EOFError, KeyboardInterrupt):
-            break  # esce in caso di Ctrl+C o fine input
-        if not user_input:
-            continue
-        if user_input.lower() in ("exit", "quit", "esci"):
-            print("👋 Uscita dall'applicazione.")
-            break
-        try:
-            # Passa il comando a GPT-4 per l'interpretazione
-            action_data = parser.parse_command(user_input)
-            print("[DEBUG] JSON interpretato da GPT:")
-            print(json.dumps(action_data, indent=2, ensure_ascii=False))
-        except Exception as e:
-            print(f"Errore nell'interpretazione del comando: {e}")
-            continue
+    if use_mcp:
+        # Modalità MCP: lasciamo che GPT usi direttamente gli strumenti MCP
+        run_mcp_cli(base_url, token)
+    else:
+        parser = GPTParser(OPENAI_API_KEY)
+        yt = YouTrackClient(base_url, token)
 
-        # Esegue l'azione appropriata in base al JSON ricevuto
-        action = action_data.get("action")
-        try:
-            if action == "create_project":
-                name = action_data.get("name") or action_data.get("project_name")
-                key = action_data.get("key") or action_data.get("project_key")
-                description = action_data.get("description", "")
-                if not name or not key:
-                    print("⚠️ Il comando non specifica nome e chiave del progetto.")
-                else:
-                    yt.create_project(name, key, description)
+        print("💡 Applicazione YouTrack Natural Language pronta. Inserisci un comando (o 'exit' per uscire).")
+        while True:
+            try:
+                user_input = input("> ")
+            except (EOFError, KeyboardInterrupt):
+                break  # esce in caso di Ctrl+C o fine input
+            if not user_input:
+                continue
+            if user_input.lower() in ("exit", "quit", "esci"):
+                print("👋 Uscita dall'applicazione.")
+                break
+            try:
+                # Passa il comando a GPT-4 per l'interpretazione
+                action_data = parser.parse_command(user_input)
+                print("[DEBUG] JSON interpretato da GPT:")
+                print(json.dumps(action_data, indent=2, ensure_ascii=False))
+            except Exception as e:
+                print(f"Errore nell'interpretazione del comando: {e}")
+                continue
 
-            elif action == "create_issue":
-                fields = action_data.get("fields") or {}
-                # project può stare top-level oppure dentro fields
-                project = (
-                    action_data.get("project")
-                    or action_data.get("project_key")
-                    or fields.get("project")
-                )
-                summary = (
-                    action_data.get("summary")
-                    or fields.get("summary")
-                    or action_data.get("title")
-                    or "Nuovo Issue"
-                )
-                description = (
-                    action_data.get("description")
-                    or fields.get("description")
-                    or ""
-                )
-                assignee = (
-                    action_data.get("assignee")
-                    or fields.get("assignee")
-                    or ""
-                )
-                priority = (
-                    action_data.get("priority")
-                    or fields.get("Priority")  # GPT spesso usa 'Priority' maiuscolo
-                    or fields.get("priority")
-                    or ""
-                )
-                if not project:
-                    print("⚠️ Il comando non specifica il progetto per create_issue.")
-                else:
-                    yt.create_issue(project, summary, description, assignee, priority)
+            # Esegue l'azione appropriata in base al JSON ricevuto
+            action = action_data.get("action")
+            try:
+                if action == "create_project":
+                    name = action_data.get("name") or action_data.get("project_name")
+                    key = action_data.get("key") or action_data.get("project_key")
+                    description = action_data.get("description", "")
+                    if not name or not key:
+                        print("⚠️ Il comando non specifica nome e chiave del progetto.")
+                    else:
+                        yt.create_project(name, key, description)
 
-            elif action == "create_epic":
-                fields = action_data.get("fields") or {}
-                project = (
-                    action_data.get("project")
-                    or action_data.get("project_key")
-                    or fields.get("project")
-                )
-                summary = (
-                    action_data.get("summary")
-                    or fields.get("summary")
-                    or action_data.get("title")
-                )
-                description = (
-                    action_data.get("description")
-                    or fields.get("description")
-                    or ""
-                )
-                assignee = (
-                    action_data.get("assignee")
-                    or fields.get("assignee")
-                    or ""
-                )
-                priority = (
-                    action_data.get("priority")
-                    or fields.get("Priority")
-                    or fields.get("priority")
-                    or ""
-                )
-                if not project or not summary:
-                    print("⚠️ Per create_epic servono almeno project e summary.")
-                else:
-                    yt.create_epic(project, summary, description, assignee, priority)
+                elif action == "create_issue":
+                    fields = action_data.get("fields") or {}
+                    # project può stare top-level oppure dentro fields
+                    project = (
+                        action_data.get("project")
+                        or action_data.get("project_key")
+                        or fields.get("project")
+                    )
+                    summary = (
+                        action_data.get("summary")
+                        or fields.get("summary")
+                        or action_data.get("title")
+                        or "Nuovo Issue"
+                    )
+                    description = (
+                        action_data.get("description")
+                        or fields.get("description")
+                        or ""
+                    )
+                    assignee = (
+                        action_data.get("assignee")
+                        or fields.get("assignee")
+                        or ""
+                    )
+                    priority = (
+                        action_data.get("priority")
+                        or fields.get("Priority")  # GPT spesso usa 'Priority' maiuscolo
+                        or fields.get("priority")
+                        or ""
+                    )
+                    if not project:
+                        print("⚠️ Il comando non specifica il progetto per create_issue.")
+                    else:
+                        yt.create_issue(project, summary, description, assignee, priority)
 
-            elif action == "create_epic_with_children":
-                project = action_data.get("project") or action_data.get("project_key")
-                epic = action_data.get("epic") or {}
-                children = action_data.get("children") or []
-                link_type = action_data.get("link_type") or "subtask"
+                elif action == "create_epic":
+                    fields = action_data.get("fields") or {}
+                    project = (
+                        action_data.get("project")
+                        or action_data.get("project_key")
+                        or fields.get("project")
+                    )
+                    summary = (
+                        action_data.get("summary")
+                        or fields.get("summary")
+                        or action_data.get("title")
+                    )
+                    description = (
+                        action_data.get("description")
+                        or fields.get("description")
+                        or ""
+                    )
+                    assignee = (
+                        action_data.get("assignee")
+                        or fields.get("assignee")
+                        or ""
+                    )
+                    priority = (
+                        action_data.get("priority")
+                        or fields.get("Priority")
+                        or fields.get("priority")
+                        or ""
+                    )
+                    if not project or not summary:
+                        print("⚠️ Per create_epic servono almeno project e summary.")
+                    else:
+                        yt.create_epic(project, summary, description, assignee, priority)
 
-                if not project:
-                    print("⚠️ Per create_epic_with_children serve il project.")
-                elif not epic:
-                    print("⚠️ Per create_epic_with_children serve l'oggetto 'epic'.")
-                else:
-                    yt.create_epic_with_children(project, epic, children, child_link_type=link_type)
+                elif action == "create_epic_with_children":
+                    project = action_data.get("project") or action_data.get("project_key")
+                    epic = action_data.get("epic") or {}
+                    children = action_data.get("children") or []
+                    link_type = action_data.get("link_type") or "subtask"
 
-            elif action == "update_issue":
-                issue = action_data.get("issue") or action_data.get("issue_id")
-                fields = action_data.get("fields") or {}
-                custom_fields = action_data.get("customFields") or []
+                    if not project:
+                        print("⚠️ Per create_epic_with_children serve il project.")
+                    elif not epic:
+                        print("⚠️ Per create_epic_with_children serve l'oggetto 'epic'.")
+                    else:
+                        yt.create_epic_with_children(project, epic, children, child_link_type=link_type)
 
-                if not issue:
-                    print("⚠️ Il comando non specifica l'issue da aggiornare.")
-                elif not fields and not custom_fields:
-                    print("⚠️ Nessun campo da aggiornare per update_issue.")
-                else:
-                    yt.update_issue(issue, fields=fields, custom_fields=custom_fields)
+                elif action == "update_issue":
+                    issue = action_data.get("issue") or action_data.get("issue_id")
+                    fields = action_data.get("fields") or {}
+                    custom_fields = action_data.get("customFields") or []
 
-            elif action == "change_issue_assignee":
-                issue = action_data.get("issue") or action_data.get("issue_id")
-                assignee = action_data.get("assignee") or action_data.get("new_assignee")
-                if not issue or not assignee:
-                    print("⚠️ Specificare sia l'issue che il nuovo assegnatario.")
-                else:
-                    yt.change_issue_assignee(issue, assignee)
+                    if not issue:
+                        print("⚠️ Il comando non specifica l'issue da aggiornare.")
+                    elif not fields and not custom_fields:
+                        print("⚠️ Nessun campo da aggiornare per update_issue.")
+                    else:
+                        yt.update_issue(issue, fields=fields, custom_fields=custom_fields)
 
-            elif action == "delete_issue":
-                issue = action_data.get("issue") or action_data.get("issue_id")
-                if not issue:
-                    print("⚠️ Specificare l'ID dell'issue da eliminare.")
-                else:
-                    yt.delete_issue(issue)
+                elif action == "change_issue_assignee":
+                    issue = action_data.get("issue") or action_data.get("issue_id")
+                    assignee = action_data.get("assignee") or action_data.get("new_assignee")
+                    if not issue or not assignee:
+                        print("⚠️ Specificare sia l'issue che il nuovo assegnatario.")
+                    else:
+                        yt.change_issue_assignee(issue, assignee)
 
-            elif action == "list_issues":
-                filters = action_data.get("filters") or {}
-                limit = action_data.get("limit", 20)
-                issues = yt.list_issues(filters=filters, limit=limit)
-                print("📋 Lista issue:")
-                if not issues:
-                    print("   (nessun issue trovato)")
-                for i in issues:
-                    print(f" - {i['id']} [{i['project']}] {i['summary']}")
+                elif action == "delete_issue":
+                    issue = action_data.get("issue") or action_data.get("issue_id")
+                    if not issue:
+                        print("⚠️ Specificare l'ID dell'issue da eliminare.")
+                    else:
+                        yt.delete_issue(issue)
 
-            elif action == "summarize_project":
-                project = action_data.get("project")
-                if not project:
-                    print("⚠️ Il comando non specifica il progetto da riassumere.")
-                else:
-                    filters = {"project": project}
-                    issues = yt.list_issues(filters=filters, limit=50)
+                elif action == "list_issues":
+                    filters = action_data.get("filters") or {}
+                    limit = action_data.get("limit", 20)
+                    issues = yt.list_issues(filters=filters, limit=limit)
+                    print("📋 Lista issue:")
                     if not issues:
-                        print(f"📋 Nessun issue trovato per il progetto {project}.")
+                        print("   (nessun issue trovato)")
+                    for i in issues:
+                        print(f" - {i['id']} [{i['project']}] {i['summary']}")
+
+                elif action == "summarize_project":
+                    project = action_data.get("project")
+                    if not project:
+                        print("⚠️ Il comando non specifica il progetto da riassumere.")
                     else:
-                        summary = parser.summarize_issues(project, issues)
-                        print("📊 Riassunto stato progetto", project)
-                        print(summary)
+                        filters = {"project": project}
+                        issues = yt.list_issues(filters=filters, limit=50)
+                        if not issues:
+                            print(f"📋 Nessun issue trovato per il progetto {project}.")
+                        else:
+                            summary = parser.summarize_issues(project, issues)
+                            print("📊 Riassunto stato progetto", project)
+                            print(summary)
 
-            elif action == "link_issues":
-                from_issue = action_data.get("from")
-                to_issue = action_data.get("to")
-                link_type = action_data.get("link_type") or "relates"
-                if not from_issue or not to_issue:
-                    print("⚠️ Per link_issues servono 'from' e 'to'.")
-                else:
-                    yt.link_issues(from_issue, to_issue, link_type)
-            elif action == "show_epic_hierarchy":
-                epic_id = (
-                    action_data.get("epic")
-                    or action_data.get("issue")
-                    or action_data.get("issue_id")
-                )
-                if not epic_id:
-                    print("⚠️ Devi specificare l'Epic, es: SUP-17")
-                else:
-                    children = yt.get_children_of_epic(epic_id)
-
-                    print(f"\n📂 Gerarchia per Epic {epic_id}\n")
-                    print(f"{epic_id}")
-
-                    if not children:
-                        print("   (Nessun subtask presente)")
+                elif action == "link_issues":
+                    from_issue = action_data.get("from")
+                    to_issue = action_data.get("to")
+                    link_type = action_data.get("link_type") or "relates"
+                    if not from_issue or not to_issue:
+                        print("⚠️ Per link_issues servono 'from' e 'to'.")
                     else:
-                        for c in children:
-                            print(f"   └── {c['id']} {c['summary']} ({c['type']} – {c['priority']})")
-                    print("")
+                        yt.link_issues(from_issue, to_issue, link_type)
+                elif action == "show_epic_hierarchy":
+                    epic_id = (
+                        action_data.get("epic")
+                        or action_data.get("issue")
+                        or action_data.get("issue_id")
+                    )
+                    if not epic_id:
+                        print("⚠️ Devi specificare l'Epic, es: SUP-17")
+                    else:
+                        children = yt.get_children_of_epic(epic_id)
 
-            else:
-                print(f"⚠️ Azione non riconosciuta o non supportata: {action}")
+                        print(f"\n📂 Gerarchia per Epic {epic_id}\n")
+                        print(f"{epic_id}")
 
-        except Exception as e:
-            print(f"❌ Errore durante l'esecuzione dell'azione: {e}")
+                        if not children:
+                            print("   (Nessun subtask presente)")
+                        else:
+                            for c in children:
+                                print(f"   └── {c['id']} {c['summary']} ({c['type']} – {c['priority']})")
+                        print("")
+
+                else:
+                    print(f"⚠️ Azione non riconosciuta o non supportata: {action}")
+
+            except Exception as e:
+                print(f"❌ Errore durante l'esecuzione dell'azione: {e}")
