@@ -1,0 +1,282 @@
+>  Crea un nuovo progetto chiamato Supporto Tecnico con la chiave SUP. Aggiungi una breve descrizione: Gestione dei ticket di supporto tecnico interno.
+
+>  Crea un ticket nel progetto SUP con titolo Errore di accesso al portale, assegnato ad admin e priorità Normal
+
+>  Crea un ticket nel progetto SUP con titolo Errore di configurazione, assegnato ad admin e priorità Normal
+
+>  Crea un ticket nel progetto SUP con titolo Errore di configurazione wifi, assegnato ad admin e priorità Minor
+
+
+List_issues
+
+>  Mostrami tutti i ticket presenti nel progetto SUP
+[DEBUG] GET https://fabioantonini.youtrack.cloud/api/issues params={'fields': 'id,idReadable,summary,project(shortName),customFields(name,value(name,login))', '$top': 20, 'query': 'project: SUP'}
+📋 Lista issue:
+ - SUP-3 [SUP] Errore di configurazione wifi
+ - SUP-2 [SUP] Errore di configurazione
+ - SUP-1 [SUP] Errore di accesso al portale
+
+> Mostrami i ticket assegnati ad admin nel progetto SUP
+[DEBUG] GET https://fabioantonini.youtrack.cloud/api/issues params={'fields': 'id,idReadable,summary,project(shortName),customFields(name,value(name,login))', '$top': 20, 'query': 'project: SUP Assignee: admin'}
+📋 Lista issue:
+ - SUP-3 [SUP] Errore di configurazione wifi
+> Mostrami i ticket di priorità Minor assegnati ad admin nel progetto SUP
+[DEBUG] GET https://fabioantonini.youtrack.cloud/api/issues params={'fields': 'id,idReadable,summary,project(shortName),customFields(name,value(name,login))', '$top': 20, 'query': 'project: SUP Assignee: admin Priority: Minor'}
+📋 Lista issue:
+ - SUP-3 [SUP] Errore di configurazione wifi
+> Mostrami i ticket di priorità Normal assegnati ad admin nel progetto SUP
+[DEBUG] GET https://fabioantonini.youtrack.cloud/api/issues params={'fields': 'id,idReadable,summary,project(shortName),customFields(name,value(name,login))', '$top': 20, 'query': 'project: SUP Assignee: admin Priority: Normal'}
+📋 Lista issue:
+   (nessun issue trovato)
+> Mostrami i ticket di priorità Normal nel progetto SUP
+[DEBUG] GET https://fabioantonini.youtrack.cloud/api/issues params={'fields': 'id,idReadable,summary,project(shortName),customFields(name,value(name,login))', '$top': 20, 'query': 'project: SUP Priority: Normal'}
+📋 Lista issue:
+ - SUP-2 [SUP] Errore di configurazione
+ - SUP-1 [SUP] Errore di accesso al portale
+
+
+> Mostrami i ticket assegnati ad admin nel progetto SUP
+[DEBUG] JSON interpretato da GPT:
+{
+  "action": "list_issues",
+  "filters": {
+    "project": "SUP",
+    "Assignee": "admin"
+  }
+}
+[DEBUG] GET https://fabioantonini.youtrack.cloud/api/issues params={'fields': 'id,idReadable,summary,project(shortName),customFields(name,value(name,login))', '$top': 20, 'query': 'project: SUP Assignee: admin'}
+📋 Lista issue:
+ - SUP-3 [SUP] Errore wifi critico
+
+
+Update issue
+
+> Aggiorna l’issue SUP-3 impostando il titolo a “Errore wifi critico” e la priorità a Major
+[DEBUG] JSON interpretato da GPT:
+{
+  "action": "update_issue",
+  "issue": "SUP-3",
+  "fields": {
+    "summary": "Errore wifi critico",
+    "Priority": "Major"
+  }
+}
+[DEBUG] Payload update_issue che sto per inviare:
+{
+  "summary": "Errore wifi critico",
+  "customFields": [
+    {
+      "name": "Priority",
+      "$type": "SingleEnumIssueCustomField",
+      "value": {
+        "name": "Major"
+      }
+    }
+  ]
+}
+✅ Issue SUP-3 aggiornato.
+
+
+> Imposta l’issue SUP-3 in stato Fixed
+[DEBUG] JSON interpretato da GPT:
+{
+  "action": "update_issue",
+  "issue": "SUP-3",
+  "fields": {
+    "State": "Fixed"
+  }
+}
+[DEBUG] Payload update_issue che sto per inviare:
+{
+  "customFields": [
+    {
+      "name": "State",
+      "$type": "SingleEnumIssueCustomField",
+      "value": {
+        "name": "Fixed"
+      }
+    }
+  ]
+}
+✅ Issue SUP-3 aggiornato.
+
+
+Delete issue
+
+> Elimina l’issue SUP-2
+[DEBUG] JSON interpretato da GPT:
+{
+  "action": "delete_issue",
+  "issue": "SUP-2"
+}
+✅ Issue SUP-2 eliminato con successo.
+
+
+Summarize issues
+
+> Riassumi lo stato del progetto SUP
+[DEBUG] JSON interpretato da GPT:
+{
+  "action": "summarize_project",
+  "project": "SUP"
+}
+[DEBUG] GET https://fabioantonini.youtrack.cloud/api/issues params={'fields': 'id,idReadable,summary,project(shortName),customFields(name,value(name,login))', '$top': 50, 'query': 'project: SUP'}
+📊 Riassunto stato progetto SUP
+Attualmente nel progetto SUP ci sono due problemi principali in fase di risoluzione. Il primo, identificato con l'ID SUP-3, riguarda un errore critico relativo alla connessione wifi. Il secondo problema, con ID SUP-1, è invece legato a un errore di accesso al portale. Queste due problematiche rappresentano i punti di attenzione principali su cui si sta lavorando.
+
+
+
+TODO
+
+Aggiungere comandi tipo:
+
+“Cerca i ticket nel progetto SUP che contengono ‘wifi’”
+
+
+
+
+Fantastico! 🎉
+Abbiamo quindi:
+
+* Creazione progetto **OK**
+* Creazione issue (summary, description, priority, assignee) **OK**
+* Listing con filtri generici **OK**
+* Update issue totalmente generico + supporto automatico `$type` **OK**
+* Assignee lookup automatico **OK**
+* Integrazione LLM → JSON → YouTrack **OK**
+
+Hai ora un vero **assistant AI per YouTrack**, completamente estendibile.
+
+---
+
+Se vuoi continuare, prossimi upgrade possibili:
+
+### 🚀 1. “Auto-schema learning”
+
+Il sistema può interrogare automaticamente YouTrack per capire:
+
+* quali custom fields esistono nei progetti
+* quali valori accettano (enum)
+* quali sono obbligatori
+
+Così GPT può produrre JSON *perfetti* e puoi fare validazione prima dell’invio.
+
+### 🔍 2. “Spiega cosa farai”
+
+Quando GPT produce un JSON, posso aggiungere una funzione tipo:
+
+```
+Sto per aggiornare l’issue SUP-4 con:
+- summary = “...”
+- priority = Major
+- assignee = admin
+Confermi? (s/n)
+```
+
+Interazione stile copilota umano.
+
+### 🔄 3. Sincronizzazione bidirezionale
+
+Puoi chiedere:
+
+> spiegami la situazione del progetto SUP
+
+E lui:
+
+* chiama `list_issues`
+* costruisce un riassunto in linguaggio naturale via GPT
+
+### 📁 4. Preparare un pacchetto “riutilizzabile”
+
+Un mini-SDK Python:
+
+* `yt.create_issue`
+* `yt.update_issue`
+* `yt.query("project: SUP priority: Major")`
+* `yt.summary(issue_id)`
+* ecc.
+
+### 🌐 5. Versione Web (Streamlit)
+
+Un frontend dove:
+
+* scrivi prompt in italiano
+* vedi anteprima delle azioni
+* log completo delle richieste/risposte
+* pannello per configurare credenziali
+
+---
+
+Se vuoi, da qui possiamo costruire:
+
+🔧 Un **plugin YouTrack MCP Agent** stile "GitHub Copilot for YouTrack"
+🖥️ Un’interfaccia grafica
+🤖 Un bot Telegram integrato
+💼 Una versione aziendale con auditing
+
+
+
+🚀 Passo successivo: creare un Epic in un solo prompt
+
+Ora che hai verificato che il doppio step funziona, vuoi che abilitiamo anche la creazione diretta?
+
+Esempio desiderato:
+
+Crea un Epic nel progetto SUP con titolo “Nuova interfaccia utente”, priorità Major e assegnato ad admin.
+
+GPT dovrebbe produrre:
+
+{
+  "action": "create_issue",
+  "project": "SUP",
+  "summary": "Nuova interfaccia utente",
+  "priority": "Major",
+  "assignee": "admin",
+  "Type": "Epic"
+}
+
+
+E il tuo codice mapperebbe Type = Epic nel payload finale.
+
+🔧 Posso aggiungere questa capacità in 2 minuti.
+
+🔹 Oppure possiamo fare ancora di più:
+✓ 1. Creazione Epic con figli
+
+Prompt:
+
+Crea un Epic nel progetto SUP per il nuovo modulo WiFi e aggiungi tre task figli: aggiornamento driver, revisione GUI, test di stabilità.
+
+GPT →
+
+{
+  "action": "create_epic_with_children",
+  "epic": {...},
+  "children": [...]
+}
+
+✓ 2. Workflow “issue linking”
+
+Supporto a:
+
+parent
+
+subtask of
+
+relates to
+
+duplicate of
+
+depends on
+
+✓ 3. Prompt naturali tipo:
+
+Collega SUP-9 come subtask dell’Epic SUP-8.
+
+Vuoi ora che implementiamo:
+
+1️⃣ Creazione di Epic in un solo step
+2️⃣ Creazione Epic + subtasks
+3️⃣ Linking tra issue (subtask/parent/dependency)
+4️⃣ Tutto il pacchetto (consigliato)
+
